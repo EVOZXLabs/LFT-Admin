@@ -203,3 +203,22 @@ footer.note{
 .actions-cell{display:flex; gap:6px; align-items:center;}
 
 .btn-xs{font-size:11px; padding:5px 9px; border-radius:5px;}
+
+/* ── bool toggle (mobile-friendly) ─────────────── */
+.bool-toggle{
+  display:inline-flex; border-radius:8px; overflow:hidden;
+  border:1px solid var(--line); background:var(--panel);
+}
+.bool-opt{
+  font-family:var(--mono); font-size:13px; font-weight:600;
+  padding:9px 20px; border:none; cursor:pointer;
+  background:transparent; color:var(--text-dim);
+  transition:background .15s, color .15s;
+  -webkit-tap-highlight-color:transparent;
+}
+.bool-opt:active{opacity:.8;}
+.bool-opt-true.active {background:rgba(61,220,151,0.18); color:var(--green);}
+.bool-opt-false.active{background:rgba(255,92,92,0.15);  color:var(--red);}
+
+/* zero-address quick-fill */
+.zero-btn{padding:7px 10px; font-size:11px; white-space:nowrap; flex-shrink:0;}

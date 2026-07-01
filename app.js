@@ -365,26 +365,63 @@ function buildPaymentMethodsSection() {
 }
 
 /* ── form builder ─────────────────────────────────────────── */
+const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
+
 function buildInputRow(inp) {
-  const wrap = document.createElement("label");
+  const wrap = document.createElement("div");
   wrap.className = "field";
-  const span = document.createElement("span");
-  span.textContent = inp.label;
-  wrap.appendChild(span);
+
+  const label = document.createElement("span");
+  label.textContent = inp.label;
+  wrap.appendChild(label);
 
   if (inp.type === "bool") {
-    const sel = document.createElement("select");
-    sel.name  = inp.name;
-    sel.innerHTML = `<option value="true">true</option><option value="false">false</option>`;
-    wrap.appendChild(sel);
+    // Mobile-friendly tap toggle instead of <select>
+    const hidden = document.createElement("input");
+    hidden.type  = "hidden";
+    hidden.name  = inp.name;
+    hidden.value = "true";
+
+    const toggle = document.createElement("div");
+    toggle.className = "bool-toggle bool-true";
+    toggle.innerHTML = `<button type="button" class="bool-opt bool-opt-true  active" data-val="true">true</button>
+                        <button type="button" class="bool-opt bool-opt-false"         data-val="false">false</button>`;
+
+    toggle.querySelectorAll(".bool-opt").forEach(btn => {
+      btn.addEventListener("click", () => {
+        toggle.querySelectorAll(".bool-opt").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        hidden.value = btn.dataset.val;
+        toggle.className = `bool-toggle bool-${btn.dataset.val}`;
+      });
+    });
+
+    wrap.appendChild(toggle);
+    wrap.appendChild(hidden);
   } else {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:6px;align-items:center;";
+
     const input = document.createElement("input");
     input.name         = inp.name;
     input.type         = "text";
     input.placeholder  = inp.type;
     input.autocomplete = "off";
     input.spellcheck   = false;
-    wrap.appendChild(input);
+    row.appendChild(input);
+
+    // Quick-fill zero address button for address fields that accept 0x0
+    if (inp.type === "address" && inp.label.toLowerCase().includes("0x0")) {
+      const zeroBtn = document.createElement("button");
+      zeroBtn.type      = "button";
+      zeroBtn.className = "btn btn-xs btn-ghost zero-btn";
+      zeroBtn.textContent = "0x0";
+      zeroBtn.title = "Fill with zero address";
+      zeroBtn.addEventListener("click", () => { input.value = ZERO_ADDR; });
+      row.appendChild(zeroBtn);
+    }
+
+    wrap.appendChild(row);
   }
   return wrap;
 }
