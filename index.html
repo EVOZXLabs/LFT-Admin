@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Launch Future · Admin Console</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23f2a93b'/><text x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' fill='%2310131a' font-size='18' font-family='monospace' font-weight='bold'>LF</text></svg>" />
+</head>
+<body>
+
+<!-- ── top bar ───────────────────────────────────────────────── -->
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark">LF</div>
+    <div class="brand-text">
+      <h1>Launch Future</h1>
+      <span>Admin Console</span>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <span class="pill" id="networkPill">No network</span>
+    <span class="pill" id="walletPill">Not connected</span>
+    <button class="btn btn-connect" id="connectBtn">Connect Wallet</button>
+  </div>
+</header>
+
+<!-- ── body ─────────────────────────────────────────────────── -->
+<div class="shell">
+  <aside class="sidebar">
+    <nav class="tab-nav" id="tabNav">
+      <!-- built by app.js -->
+    </nav>
+  </aside>
+
+  <main class="main">
+    <div id="views">
+      <!-- panels built by app.js -->
+    </div>
+
+    <!-- activity log always visible at the bottom -->
+    <div class="log-panel" style="margin-top:24px">
+      <h3>Activity log</h3>
+      <div class="log" id="log"></div>
+    </div>
+  </main>
+</div>
+
+<footer class="note">
+  This page connects directly to the blockchain via your browser wallet. No backend, no keys stored.
+  Only the contract owner wallet can execute write operations.
+</footer>
+
+<!-- ── ABI files ─────────────────────────────────────────────── -->
+<script src="abi/LaunchFutureToken.js"></script>
+<script src="abi/LaunchFutureExchange.js"></script>
+<script src="abi/LFTDeployer.js"></script>
+<script src="abi/LFTFactory.js"></script>
+
+<!-- ── app config & schema ──────────────────────────────────── -->
+<script src="config.js"></script>
+<script src="schema.js"></script>
+
+<!-- ── main app (ES module) ─────────────────────────────────── -->
+<script type="module" src="app.js"></script>
+
+</body>
+</html>
