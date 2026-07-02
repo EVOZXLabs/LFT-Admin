@@ -11,6 +11,12 @@ window.LFT_CONFIG = {
   // e.g. "https://bscscan.com" or "https://basescan.org". Leave "" to hide.
   explorerUrl: "",
 
+  // Optional public read-only RPC endpoint (e.g. a free BSC/Base RPC URL).
+  // Used ONLY when no wallet extension is installed, so stats can still
+  // load. If a wallet extension is present, its own RPC is used instead
+  // and this is ignored. Leave "" to disable.
+  rpcUrl: "",
+
   contracts: {
     treasury: {
       label: "Treasury",

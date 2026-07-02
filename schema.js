@@ -1,7 +1,83 @@
 // ── Launch Future · admin console schema ───────────────────────────────
-// Declarative description of which view functions to display as stats
-// and which write functions to expose as owner actions, per contract.
-// app.js reads this to generate the UI — no contract-specific code there.
+// Declarative description of which view functions to display as stats,
+// which lookups to expose, and which write functions are owner actions,
+// per contract. app.js reads this to generate the UI.
+//
+// Every action / lookup can carry:
+//   group:    "primary" (default) | "advanced" | "danger"
+//             primary  -> always visible
+//             advanced -> collapsed under "Advanced" (rarely-used / complex)
+//             danger   -> collapsed under "Danger zone" (irreversible)
+//   confirm:  text shown in a confirm dialog before sending the tx
+//   payableValue: { name, label } — adds a native-coin amount field whose
+//             value is sent as msg.value instead of a normal call arg
+//
+// Inputs support nested structs via { type: "tuple", fields: [...] }.
+
+// Shared struct fragments (re-used by the token-deploy related calls) ----
+const SUPPLY_CONFIG_FIELDS = [
+  { name: "initialSupply", type: "uint256", label: "Initial supply (wei units)" },
+  { name: "maxSupply",     type: "uint256", label: "Max supply (wei units)" },
+  { name: "mintable",      type: "bool",    label: "Mintable?" },
+  { name: "burnable",      type: "bool",    label: "Burnable?" }
+];
+
+const SECURITY_CONFIG_FIELDS = [
+  { name: "antiBot",             type: "bool",   label: "Anti-bot enabled?" },
+  { name: "blacklist",           type: "bool",   label: "Blacklist enabled?" },
+  { name: "whitelist",           type: "bool",   label: "Whitelist enabled?" },
+  { name: "tradingDelay",        type: "bool",   label: "Trading delay enabled?" },
+  { name: "maxWalletEnabled",    type: "bool",   label: "Max wallet limit enabled?" },
+  { name: "maxTxEnabled",        type: "bool",   label: "Max tx limit enabled?" },
+  { name: "maxWalletPercent",    type: "uint16", label: "Max wallet (bps)" },
+  { name: "maxTxPercent",        type: "uint16", label: "Max tx (bps)" },
+  { name: "antiBotBlocks",       type: "uint32", label: "Anti-bot blocks" },
+  { name: "tradingDelaySeconds", type: "uint32", label: "Trading delay (seconds)" }
+];
+
+const TAX_CONFIG_FIELDS = [
+  { name: "buyTaxEnabled",      type: "bool",    label: "Buy tax enabled?" },
+  { name: "sellTaxEnabled",     type: "bool",    label: "Sell tax enabled?" },
+  { name: "transferTaxEnabled", type: "bool",    label: "Transfer tax enabled?" },
+  { name: "buyTax",             type: "uint16",  label: "Buy tax (bps)" },
+  { name: "sellTax",            type: "uint16",  label: "Sell tax (bps)" },
+  { name: "transferTax",        type: "uint16",  label: "Transfer tax (bps)" },
+  { name: "burnShare",          type: "uint16",  label: "Burn share (bps)" },
+  { name: "marketingShare",     type: "uint16",  label: "Marketing share (bps)" },
+  { name: "developmentShare",   type: "uint16",  label: "Development share (bps)" },
+  { name: "treasuryShare",      type: "uint16",  label: "Treasury share (bps)" },
+  { name: "liquidityShare",     type: "uint16",  label: "Liquidity share (bps)" },
+  { name: "buybackShare",       type: "uint16",  label: "Buyback share (bps)" },
+  { name: "charityShare",       type: "uint16",  label: "Charity share (bps)" },
+  { name: "marketingWallet",    type: "address", label: "Marketing wallet" },
+  { name: "developmentWallet",  type: "address", label: "Development wallet" },
+  { name: "treasuryWallet",     type: "address", label: "Treasury wallet" },
+  { name: "liquidityWallet",    type: "address", label: "Liquidity wallet" },
+  { name: "buybackWallet",      type: "address", label: "Buyback wallet" },
+  { name: "charityWallet",      type: "address", label: "Charity wallet" }
+];
+
+const TOKEN_CONFIG_FIELD = {
+  name: "config", type: "tuple", label: "Token config",
+  fields: [
+    { name: "name",   type: "string",  label: "Token name" },
+    { name: "symbol", type: "string",  label: "Token symbol" },
+    { name: "owner",  type: "address", label: "Token owner" },
+    { name: "supply",   type: "tuple", label: "Supply", fields: SUPPLY_CONFIG_FIELDS },
+    { name: "security", type: "tuple", label: "Security", fields: SECURITY_CONFIG_FIELDS },
+    { name: "taxes",    type: "tuple", label: "Taxes", fields: TAX_CONFIG_FIELDS }
+  ]
+};
+
+const METADATA_CONFIG_FIELD = {
+  name: "metadata", type: "tuple", label: "Metadata",
+  fields: [
+    { name: "website",  type: "string", label: "Website" },
+    { name: "telegram", type: "string", label: "Telegram" },
+    { name: "twitter",  type: "string", label: "Twitter" },
+    { name: "logoURI",  type: "string", label: "Logo URI" }
+  ]
+};
 
 window.LFT_SCHEMA = {
 
@@ -19,19 +95,65 @@ window.LFT_SCHEMA = {
         name: "balanceOf", label: "Check balance",
         inputs: [{ name: "account", type: "address", label: "Wallet address" }],
         format: "token"
+      },
+      {
+        name: "allowance", label: "Check allowance",
+        group: "advanced",
+        inputs: [
+          { name: "owner", type: "address", label: "Owner address" },
+          { name: "spender", type: "address", label: "Spender address" }
+        ],
+        format: "token"
+      },
+      {
+        name: "nonces", label: "Permit nonce",
+        group: "advanced",
+        inputs: [{ name: "owner", type: "address", label: "Wallet address" }]
+      },
+      {
+        name: "DOMAIN_SEPARATOR", label: "EIP-712 domain separator",
+        group: "advanced",
+        inputs: []
       }
     ],
     actions: [
       {
-        name: "transferOwnership", label: "Transfer ownership",
-        danger: true,
-        inputs: [{ name: "newOwner", type: "address", label: "New owner address" }]
+        name: "transfer", label: "Transfer tokens",
+        group: "advanced",
+        inputs: [
+          { name: "to", type: "address", label: "Recipient" },
+          { name: "amount", type: "uint256", label: "Amount (wei units)" }
+        ]
       },
       {
-        name: "renounceOwnership", label: "Renounce ownership",
-        danger: true,
-        confirm: "This permanently removes the owner. This cannot be undone. Continue?",
-        inputs: []
+        name: "approve", label: "Approve spender",
+        group: "advanced",
+        inputs: [
+          { name: "spender", type: "address", label: "Spender address" },
+          { name: "amount", type: "uint256", label: "Amount (wei units)" }
+        ]
+      },
+      {
+        name: "transferFrom", label: "Transfer from (using allowance)",
+        group: "advanced",
+        inputs: [
+          { name: "from", type: "address", label: "From" },
+          { name: "to", type: "address", label: "To" },
+          { name: "amount", type: "uint256", label: "Amount (wei units)" }
+        ]
+      },
+      {
+        name: "burn", label: "Burn my tokens",
+        group: "advanced",
+        inputs: [{ name: "amount", type: "uint256", label: "Amount (wei units)" }]
+      },
+      {
+        name: "burnFrom", label: "Burn from (using allowance)",
+        group: "advanced",
+        inputs: [
+          { name: "account", type: "address", label: "Account" },
+          { name: "amount", type: "uint256", label: "Amount (wei units)" }
+        ]
       },
       {
         name: "recoverERC20", label: "Recover stuck ERC-20 tokens",
@@ -47,6 +169,17 @@ window.LFT_SCHEMA = {
           { name: "recipient", type: "address", label: "Send to" },
           { name: "amount", type: "uint256", label: "Amount (wei)" }
         ]
+      },
+      {
+        name: "transferOwnership", label: "Transfer ownership",
+        group: "danger",
+        inputs: [{ name: "newOwner", type: "address", label: "New owner address" }]
+      },
+      {
+        name: "renounceOwnership", label: "Renounce ownership",
+        group: "danger",
+        confirm: "This permanently removes the owner. This cannot be undone. Continue?",
+        inputs: []
       }
     ]
   },
@@ -67,6 +200,10 @@ window.LFT_SCHEMA = {
       {
         name: "canPurchase", label: "Can purchase?",
         inputs: [{ name: "nativeAmount", type: "uint256", label: "Native amount (wei)" }]
+      },
+      {
+        name: "hasLiquidity", label: "Has enough liquidity?",
+        inputs: [{ name: "amount", type: "uint256", label: "LFT amount (wei units)" }]
       }
     ],
     actions: [
@@ -102,12 +239,12 @@ window.LFT_SCHEMA = {
       },
       {
         name: "transferOwnership", label: "Transfer ownership",
-        danger: true,
+        group: "danger",
         inputs: [{ name: "newOwner", type: "address", label: "New owner address" }]
       },
       {
         name: "renounceOwnership", label: "Renounce ownership",
-        danger: true,
+        group: "danger",
         confirm: "This permanently removes the owner. This cannot be undone. Continue?",
         inputs: []
       }
@@ -117,13 +254,28 @@ window.LFT_SCHEMA = {
   deployer: {
     reads: [
       { name: "deployer", label: "Deployer (CREATE2 signer)", format: "address" },
-      { name: "factory", label: "Linked factory", format: "address" }
+      { name: "factory", label: "Linked factory", format: "address" },
+      { name: "isInitialized", label: "Initialized", format: "bool" },
+      { name: "version", label: "Version" },
+      { name: "contractName", label: "Contract name" },
+      { name: "contractType", label: "Contract type" }
     ],
-    lookups: [],
+    lookups: [
+      { name: "getInfo", label: "Get full info", inputs: [] },
+      {
+        name: "predictAddress", label: "Predict CREATE2 token address",
+        group: "advanced",
+        inputs: [
+          TOKEN_CONFIG_FIELD,
+          METADATA_CONFIG_FIELD,
+          { name: "salt", type: "bytes32", label: "Salt (bytes32, 0x + 64 hex chars)" }
+        ]
+      }
+    ],
     actions: [
       {
         name: "initializeFactory", label: "Set linked factory",
-        danger: true,
+        group: "danger",
         confirm: "This can usually only be set once. Continue?",
         inputs: [{ name: "newFactory", type: "address", label: "Factory address" }]
       }
@@ -140,7 +292,9 @@ window.LFT_SCHEMA = {
       { name: "treasuryPercent", label: "Treasury percent (bps)" },
       { name: "paused", label: "Paused", format: "bool" },
       { name: "totalDeployed", label: "Tokens deployed" },
+      { name: "getFactoryTokenCount", label: "Factory token count" },
       { name: "totalCreators", label: "Total creators" },
+      { name: "getCreatorCount", label: "Creator count" },
       { name: "totalDeployFeeCollected", label: "Total deploy fees collected", format: "token" },
       { name: "totalBurnedFee", label: "Total fee burned", format: "token" },
       { name: "totalPaymentMethods", label: "Payment methods" },
@@ -156,8 +310,53 @@ window.LFT_SCHEMA = {
         inputs: [{ name: "paymentSymbol", type: "string", label: "Payment symbol" }]
       },
       {
+        name: "quoteNativeFee", label: "Quote native fee for payment symbol",
+        inputs: [{ name: "paymentSymbol", type: "string", label: "Payment symbol" }]
+      },
+      {
         name: "getPaymentMethod", label: "Get payment method config",
         inputs: [{ name: "symbol", type: "string", label: "Payment symbol" }]
+      },
+      {
+        name: "getStatistics", label: "Get full statistics",
+        inputs: []
+      },
+      {
+        name: "getPaymentKeys", label: "Get raw payment method keys",
+        group: "advanced",
+        inputs: []
+      },
+      {
+        name: "tokenExists", label: "Does token exist?",
+        inputs: [{ name: "token", type: "address", label: "Token address" }]
+      },
+      {
+        name: "isTokenFromFactory", label: "Was token deployed by this factory?",
+        inputs: [{ name: "token", type: "address", label: "Token address" }]
+      },
+      {
+        name: "getDeployedToken", label: "Get deployed token by index",
+        inputs: [{ name: "index", type: "uint256", label: "Index" }]
+      },
+      {
+        name: "getDeployedTokens", label: "Get deployed tokens (paged)",
+        inputs: [
+          { name: "offset", type: "uint256", label: "Offset" },
+          { name: "limit", type: "uint256", label: "Limit" }
+        ]
+      },
+      {
+        name: "getCreatorTokens", label: "Get tokens by creator",
+        inputs: [{ name: "creator", type: "address", label: "Creator address" }]
+      },
+      {
+        name: "predictTokenAddress", label: "Predict deployed token address",
+        group: "advanced",
+        inputs: [
+          TOKEN_CONFIG_FIELD,
+          METADATA_CONFIG_FIELD,
+          { name: "salt", type: "bytes32", label: "Salt (bytes32, 0x + 64 hex chars)" }
+        ]
       }
     ],
     actions: [
@@ -193,6 +392,10 @@ window.LFT_SCHEMA = {
         inputs: [{ name: "symbols", type: "string[]", label: "Symbols (comma-separated)" }]
       },
       {
+        name: "disablePaymentMethod", label: "Disable a single payment method",
+        inputs: [{ name: "symbol", type: "string", label: "Symbol" }]
+      },
+      {
         name: "batchUpdateFee", label: "Batch update deploy fees",
         inputs: [
           { name: "symbols", type: "string[]", label: "Symbols (comma-separated)" },
@@ -201,17 +404,50 @@ window.LFT_SCHEMA = {
       },
       {
         name: "setPaymentMethod", label: "Add / update a payment method",
-        advanced: true,
+        group: "advanced",
         inputs: [
           { name: "symbol", type: "string", label: "Symbol" },
-          { name: "payment.enabled", type: "bool", label: "Enabled?" },
-          { name: "payment.isNative", type: "bool", label: "Is native coin?" },
-          { name: "payment.burnEnabled", type: "bool", label: "Burn enabled?" },
-          { name: "payment.token", type: "address", label: "Token address (0x0 if native)" },
-          { name: "payment.exchange", type: "address", label: "Exchange address (0x0 if none)" },
-          { name: "payment.deployFee", type: "uint256", label: "Deploy fee (wei units)" }
-        ],
-        struct: { payment: ["enabled", "isNative", "burnEnabled", "token", "exchange", "deployFee"] }
+          {
+            name: "payment", type: "tuple", label: "Payment config",
+            fields: [
+              { name: "enabled", type: "bool", label: "Enabled?" },
+              { name: "isNative", type: "bool", label: "Is native coin?" },
+              { name: "burnEnabled", type: "bool", label: "Burn enabled?" },
+              { name: "token", type: "address", label: "Token address (0x0 if native)" },
+              { name: "exchange", type: "address", label: "Exchange address (0x0 if none)" },
+              { name: "deployFee", type: "uint256", label: "Deploy fee (wei units)" }
+            ]
+          }
+        ]
+      },
+      {
+        name: "deployWithNative", label: "Deploy a token (pay with native coin)",
+        group: "advanced",
+        payableValue: { name: "value", label: "Native amount to send (wei)" },
+        inputs: [ TOKEN_CONFIG_FIELD, METADATA_CONFIG_FIELD ]
+      },
+      {
+        name: "deployCreate2", label: "Deploy a token (CREATE2, deterministic address)",
+        group: "advanced",
+        inputs: [
+          TOKEN_CONFIG_FIELD,
+          METADATA_CONFIG_FIELD,
+          { name: "paymentSymbol", type: "string", label: "Payment symbol" },
+          { name: "salt", type: "bytes32", label: "Salt (bytes32, 0x + 64 hex chars)" }
+        ]
+      },
+      {
+        name: "deployWithPermit", label: "Deploy a token (pay via ERC-20 permit)",
+        group: "advanced",
+        inputs: [
+          TOKEN_CONFIG_FIELD,
+          METADATA_CONFIG_FIELD,
+          { name: "paymentSymbol", type: "string", label: "Payment symbol" },
+          { name: "deadline", type: "uint256", label: "Permit deadline (unix time)" },
+          { name: "v", type: "uint8", label: "Signature v" },
+          { name: "r", type: "bytes32", label: "Signature r" },
+          { name: "s", type: "bytes32", label: "Signature s" }
+        ]
       },
       {
         name: "recoverERC20", label: "Recover stuck ERC-20 tokens",
@@ -226,12 +462,12 @@ window.LFT_SCHEMA = {
       },
       {
         name: "transferOwnership", label: "Transfer ownership (step 1 of 2)",
-        danger: true,
+        group: "danger",
         inputs: [{ name: "newOwner", type: "address", label: "New owner address" }]
       },
       {
         name: "acceptOwnership", label: "Accept ownership (step 2 of 2)",
-        danger: true,
+        group: "danger",
         inputs: []
       }
     ]

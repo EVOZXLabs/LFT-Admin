@@ -20,6 +20,7 @@
     </div>
   </div>
   <div class="topbar-right">
+    <span class="pill" id="rpcPill">Detecting RPC…</span>
     <span class="pill" id="networkPill">No network</span>
     <span class="pill" id="walletPill">Not connected</span>
     <button class="btn btn-connect" id="connectBtn">Connect Wallet</button>
@@ -32,6 +33,7 @@
     <nav class="tab-nav" id="tabNav">
       <!-- built by app.js -->
     </nav>
+    <button class="btn btn-ghost btn-block" id="refreshAllBtn">↻ Refresh all</button>
   </aside>
 
   <main class="main">
@@ -41,7 +43,11 @@
 
     <!-- activity log always visible at the bottom -->
     <div class="log-panel" style="margin-top:24px">
-      <h3>Activity log</h3>
+      <div class="log-panel-head">
+        <h3>Activity log</h3>
+        <button class="btn btn-xs btn-ghost" id="clearLogBtn">Clear</button>
+      </div>
+      <p class="log-hint">Saved in this browser, so it survives page reloads and reconnects.</p>
       <div class="log" id="log"></div>
     </div>
   </main>

@@ -11,6 +11,12 @@ const ABI_MAP = {
   factory:  window.LFTFactoryABI
 };
 
+// `provider` is a READ-ONLY provider available as soon as the page loads
+// (from the injected wallet, without requesting accounts, or from an
+// optional public RPC configured in config.js). This is what fixes stats
+// "disappearing" every session: reads no longer depend on the wallet
+// being connected. `signer` is only set once the user clicks Connect,
+// and is required for anything that sends a transaction.
 let provider   = null;
 let signer     = null;
 let signerAddr = null;
@@ -18,10 +24,43 @@ let signerAddr = null;
 const $  = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-const connectBtn  = $("#connectBtn");
-const walletPill  = $("#walletPill");
-const networkPill = $("#networkPill");
-const logEl       = $("#log");
+const connectBtn   = $("#connectBtn");
+const walletPill   = $("#walletPill");
+const networkPill  = $("#networkPill");
+const rpcPill      = $("#rpcPill");
+const logEl        = $("#log");
+const refreshAllBtn = $("#refreshAllBtn");
+const clearLogBtn   = $("#clearLogBtn");
+
+/* ── persistence (localStorage) ──────────────────────────────
+   Two things are cached across page loads / reconnects:
+   - the activity log, so "what did I already set" is never lost
+   - the last known value of every read/stat, shown instantly (marked
+     "cached") while a fresh on-chain read is in flight
+*/
+const LOG_KEY   = "lft_admin_log_v1";
+const CACHE_KEY = "lft_admin_cache_v1";
+const LOG_LIMIT = 300;
+
+function loadLog() {
+  try { return JSON.parse(localStorage.getItem(LOG_KEY)) || []; }
+  catch { return []; }
+}
+function saveLog(rows) {
+  try { localStorage.setItem(LOG_KEY, JSON.stringify(rows.slice(0, LOG_LIMIT))); }
+  catch { /* storage full/unavailable — non-fatal */ }
+}
+function loadCache() {
+  try { return JSON.parse(localStorage.getItem(CACHE_KEY)) || {}; }
+  catch { return {}; }
+}
+function saveCacheEntry(cacheKey, text) {
+  try {
+    const cache = loadCache();
+    cache[cacheKey] = { text, ts: Date.now() };
+    localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
+  } catch { /* non-fatal */ }
+}
 
 /* ── helpers ──────────────────────────────────────────────── */
 function short(addr) {
@@ -29,10 +68,19 @@ function short(addr) {
   return addr.slice(0, 6) + "…" + addr.slice(-4);
 }
 
-function log(message, kind = "info", txHash = null) {
+function log(message, kind = "info", txHash = null, persist = true) {
+  const time = new Date().toLocaleTimeString();
+  renderLogRow({ message, kind, txHash, time });
+  if (persist) {
+    const rows = loadLog();
+    rows.unshift({ message, kind, txHash, time, at: Date.now() });
+    saveLog(rows);
+  }
+}
+
+function renderLogRow({ message, kind, txHash, time }) {
   const row  = document.createElement("div");
   row.className = `log-row log-${kind}`;
-  const time = new Date().toLocaleTimeString();
   let html   = `<span class="log-time">${time}</span><span class="log-msg">${message}</span>`;
   if (txHash) {
     const link = CFG.explorerUrl
@@ -41,7 +89,13 @@ function log(message, kind = "info", txHash = null) {
     html += ` ${link}`;
   }
   row.innerHTML = html;
-  logEl.prepend(row);
+  logEl.insertBefore(row, logEl.firstChild);
+}
+
+function restoreLog() {
+  const rows = loadLog();
+  // oldest first into the DOM since renderLogRow prepends each one
+  [...rows].reverse().forEach(renderLogRow);
 }
 
 function fmtValue(raw, format) {
@@ -55,6 +109,10 @@ function fmtValue(raw, format) {
   if (typeof raw === "bigint") return raw.toString();
   if (Array.isArray(raw))      return raw.map(v => fmtValue(v)).join(", ");
   return raw.toString();
+}
+
+function jsonStringifySafe(val) {
+  return JSON.stringify(val, (_, v) => typeof v === "bigint" ? v.toString() : v, 2);
 }
 
 function parseInput(rawStr, type) {
@@ -72,17 +130,61 @@ function parseInput(rawStr, type) {
     if (!ethers.isAddress(rawStr)) throw new Error(`"${rawStr}" is not a valid address`);
     return ethers.getAddress(rawStr);
   }
+  if (type === "bytes32") {
+    if (!/^0x[0-9a-fA-F]{64}$/.test(rawStr)) throw new Error(`"${rawStr}" is not a valid bytes32 value (0x + 64 hex chars)`);
+    return rawStr;
+  }
   return rawStr;
 }
 
+/* Recursively collect argument values from a schema's `inputs` array,
+   in order, matching nested tuples into nested arrays. `pathPrefix` is
+   used to build unique dotted `name` attributes for the DOM inputs. */
+function collectArgs(inputs, form, pathPrefix = "") {
+  return inputs.map(inp => {
+    const path = pathPrefix ? `${pathPrefix}.${inp.name}` : inp.name;
+    if (inp.type === "tuple") {
+      return collectArgs(inp.fields, form, path);
+    }
+    const el = form.querySelector(`[name="${CSS.escape(path)}"]`);
+    if (!el) throw new Error(`Missing field: ${inp.label || inp.name}`);
+    return parseInput(el.value, inp.type);
+  });
+}
+
 /* ── wallet ───────────────────────────────────────────────── */
+function detectReadProvider() {
+  if (window.ethereum) {
+    provider = new ethers.BrowserProvider(window.ethereum);
+    rpcPill.textContent = "Reads via wallet RPC";
+  } else if (CFG.rpcUrl) {
+    provider = new ethers.JsonRpcProvider(CFG.rpcUrl);
+    rpcPill.textContent = "Reads via public RPC";
+  } else {
+    provider = null;
+    rpcPill.textContent = "No RPC available";
+    rpcPill.classList.add("pill-warn");
+    return;
+  }
+  rpcPill.classList.add("pill-active");
+  provider.getNetwork()
+    .then(net => {
+      networkPill.textContent = `Chain ${net.chainId}`;
+      networkPill.classList.add("pill-active");
+      if (CFG.chainId && Number(net.chainId) !== Number(CFG.chainId)) {
+        networkPill.classList.add("pill-warn");
+      }
+    })
+    .catch(() => { networkPill.textContent = "Network unknown"; });
+}
+
 async function connect() {
   if (!window.ethereum) {
     log("No wallet found. Install MetaMask or another injected wallet.", "error");
     return;
   }
   try {
-    provider   = new ethers.BrowserProvider(window.ethereum);
+    if (!provider) provider = new ethers.BrowserProvider(window.ethereum);
     await provider.send("eth_requestAccounts", []);
     signer     = await provider.getSigner();
     signerAddr = await signer.getAddress();
@@ -90,7 +192,7 @@ async function connect() {
     const net = await provider.getNetwork();
     networkPill.textContent = `Chain ${net.chainId}`;
     networkPill.classList.add("pill-active");
-
+    networkPill.classList.remove("pill-warn");
     if (CFG.chainId && Number(net.chainId) !== Number(CFG.chainId)) {
       networkPill.classList.add("pill-warn");
       log(`Wallet on chain ${net.chainId}, expected ${CFG.chainId}. Please switch networks.`, "error");
@@ -106,6 +208,7 @@ async function connect() {
     window.ethereum.on?.("chainChanged",    () => window.location.reload());
 
     await refreshAllOwnerBadges();
+    await refreshAllReads();
   } catch (err) {
     log(`Connection failed: ${err.message || err}`, "error");
   }
@@ -115,7 +218,7 @@ function getContract(key, withSigner = true) {
   const cfg    = CFG.contracts[key];
   const abi    = ABI_MAP[key];
   const runner = withSigner && signer ? signer : provider;
-  if (!runner) throw new Error("Connect a wallet first.");
+  if (!runner) throw new Error("No RPC connection available yet.");
   return new ethers.Contract(cfg.address, abi, runner);
 }
 
@@ -135,31 +238,65 @@ async function refreshOwnerBadge(key) {
     badge.classList.toggle("badge-good",    isOwner);
     badge.classList.toggle("badge-neutral", !isOwner);
   } catch {
-    badge.textContent = "Owner unknown";
+    badge.textContent = provider ? "Owner unknown" : "Connect wallet to check ownership";
+  }
+}
+
+/* Re-run every stat-grid read on every panel. Called on init (using the
+   read-only provider), again after connecting a wallet, and whenever the
+   user hits "Refresh". This is the fix for reads getting stuck on
+   "error"/"—" forever after a normal page load. */
+async function refreshAllReads() {
+  for (const key of Object.keys(SCHEMA)) {
+    $$(`#panel-${key} [data-read]`).forEach(el => {
+      const fn = SCHEMA[key].reads.find(r => r.name === el.dataset.read);
+      if (fn) runRead(key, fn, el);
+    });
   }
 }
 
 /* ── contract calls ───────────────────────────────────────── */
 async function runRead(key, fnSchema, container) {
+  const cacheKey = `${key}:${fnSchema.name}`;
+  if (!provider) {
+    // show the last known value (if any) instead of a blank/"error" state
+    const cached = loadCache()[cacheKey];
+    container.textContent = cached ? `${cached.text}` : "—";
+    container.classList.toggle("stat-cached", !!cached);
+    container.title = cached ? `Cached from a previous session · no RPC connection right now` : "";
+    return;
+  }
+  container.classList.add("stat-loading");
   try {
     const c      = getContract(key, false);
     const result = await c[fnSchema.name]();
-    container.textContent = fmtValue(result, fnSchema.format);
+    const text   = fmtValue(result, fnSchema.format);
+    container.textContent = text;
+    container.title       = "";
+    container.classList.remove("stat-cached", "stat-error");
+    saveCacheEntry(cacheKey, text);
   } catch (err) {
-    container.textContent = "error";
-    container.title       = err.message || String(err);
+    const cached = loadCache()[cacheKey];
+    if (cached) {
+      container.textContent = cached.text;
+      container.classList.add("stat-cached");
+      container.title = "Showing the last known value — the live read just failed.";
+    } else {
+      container.textContent = "error";
+      container.classList.add("stat-error");
+      container.title = err.message || String(err);
+    }
+  } finally {
+    container.classList.remove("stat-loading");
   }
 }
 
 async function runLookup(key, fnSchema, form, outEl) {
   try {
     const c    = getContract(key, false);
-    const args = fnSchema.inputs.map(inp => {
-      const el = form.querySelector(`[name="${inp.name}"]`);
-      return parseInput(el.value, inp.type);
-    });
+    const args = collectArgs(fnSchema.inputs, form);
     const result = await c[fnSchema.name](...args);
-    outEl.textContent = JSON.stringify(result, (_, v) => typeof v === "bigint" ? v.toString() : v, 2);
+    outEl.textContent = jsonStringifySafe(result);
     outEl.classList.remove("hidden");
   } catch (err) {
     outEl.textContent = `Error: ${err.shortMessage || err.message || err}`;
@@ -170,40 +307,26 @@ async function runLookup(key, fnSchema, form, outEl) {
 async function runAction(key, fnSchema, form, btn) {
   if (fnSchema.confirm && !window.confirm(fnSchema.confirm)) return;
 
-  let args;
+  let args, overrides = {};
   try {
-    if (fnSchema.struct) {
-      args = [];
-      for (const inp of fnSchema.inputs) {
-        if (inp.name.includes(".")) continue;
-        const el = form.querySelector(`[name="${inp.name}"]`);
-        args.push(parseInput(el.value, inp.type));
-      }
-      for (const [structName, fields] of Object.entries(fnSchema.struct)) {
-        const tuple = fields.map(f => {
-          const inp = fnSchema.inputs.find(i => i.name === `${structName}.${f}`);
-          const el  = form.querySelector(`[name="${inp.name}"]`);
-          return parseInput(el.value, inp.type);
-        });
-        args.push(tuple);
-      }
-    } else {
-      args = fnSchema.inputs.map(inp => {
-        const el = form.querySelector(`[name="${inp.name}"]`);
-        return parseInput(el.value, inp.type);
-      });
+    args = collectArgs(fnSchema.inputs, form);
+    if (fnSchema.payableValue) {
+      const el = form.querySelector(`[name="${CSS.escape(fnSchema.payableValue.name)}"]`);
+      overrides.value = parseInput(el.value, "uint256");
     }
   } catch (err) {
     log(`${fnSchema.label}: ${err.message}`, "error");
     return;
   }
 
+  if (!signer) { log("Connect a wallet to send transactions.", "error"); return; }
+
   const c            = getContract(key, true);
   const originalText = btn.textContent;
   btn.disabled       = true;
   btn.textContent    = "Confirm in wallet…";
   try {
-    const tx      = await c[fnSchema.name](...args);
+    const tx      = await c[fnSchema.name](...args, overrides);
     btn.textContent = "Pending…";
     log(`${fnSchema.label} — submitted`, "pending", tx.hash);
     const receipt = await tx.wait();
@@ -224,12 +347,11 @@ async function runAction(key, fnSchema, form, btn) {
 /* ── payment methods scanner ──────────────────────────────── */
 async function loadPaymentMethods(symbols, tbody, statusEl) {
   if (!provider) {
-    statusEl.textContent = "Connect a wallet first.";
+    statusEl.textContent = "No RPC connection available yet.";
     return;
   }
   const c = getContract("factory", false);
 
-  // show total registered count for reference
   let totalCount = "?";
   try { totalCount = (await c.totalPaymentMethods()).toString(); } catch {}
 
@@ -240,7 +362,6 @@ async function loadPaymentMethods(symbols, tbody, statusEl) {
   for (const sym of symbols) {
     try {
       const pm = await c.getPaymentMethod(sym);
-      // pm: [enabled, isNative, burnEnabled, token, exchange, deployFee]
       const isZeroToken    = pm.token    === ethers.ZeroAddress;
       const isZeroExchange = pm.exchange === ethers.ZeroAddress;
       const feeFormatted   = ethers.formatUnits(pm.deployFee, 18);
@@ -270,16 +391,11 @@ async function loadPaymentMethods(symbols, tbody, statusEl) {
 
   statusEl.textContent = `Loaded ${found} of ${symbols.length} symbols. (${totalCount} total in contract)`;
 
-  // wire enable/disable buttons
   tbody.querySelectorAll(".pm-enable").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      await quickTogglePayment([btn.dataset.sym], true, btn);
-    });
+    btn.addEventListener("click", async () => { await quickTogglePayment([btn.dataset.sym], true, btn); });
   });
   tbody.querySelectorAll(".pm-disable").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      await quickTogglePayment([btn.dataset.sym], false, btn);
-    });
+    btn.addEventListener("click", async () => { await quickTogglePayment([btn.dataset.sym], false, btn); });
   });
 }
 
@@ -297,8 +413,7 @@ async function quickTogglePayment(symbols, enable, btn) {
     log(`${lbl} [${symbols.join(",")}] — submitted`, "pending", tx.hash);
     const receipt = await tx.wait();
     log(`${lbl} [${symbols.join(",")}] — confirmed in block ${receipt.blockNumber}`, "ok", tx.hash);
-    // reload the row
-    const tbody   = btn.closest("tbody");
+    const tbody    = btn.closest("tbody");
     const statusEl = btn.closest(".pm-scanner").querySelector(".pm-status");
     const inputEl  = btn.closest(".pm-scanner").querySelector(".pm-symbols-input");
     const syms     = inputEl.value.split(",").map(s => s.trim()).filter(Boolean);
@@ -315,7 +430,6 @@ function buildPaymentMethodsSection() {
   wrap.className = "subsection pm-scanner";
   wrap.innerHTML = `<h3>Payment methods</h3>`;
 
-  // input + load button
   const toolbar = document.createElement("div");
   toolbar.className = "pm-toolbar";
   toolbar.innerHTML = `
@@ -331,21 +445,14 @@ function buildPaymentMethodsSection() {
   statusEl.textContent = "Enter symbols above and click Load.";
   wrap.appendChild(statusEl);
 
-  // table
   const tableWrap = document.createElement("div");
   tableWrap.className = "pm-table-wrap";
   tableWrap.innerHTML = `
     <table class="pm-table">
       <thead>
         <tr>
-          <th>Symbol</th>
-          <th>Status</th>
-          <th>Type</th>
-          <th>Burn</th>
-          <th>Deploy fee (wei)</th>
-          <th>Token address</th>
-          <th>Exchange address</th>
-          <th>Actions</th>
+          <th>Symbol</th><th>Status</th><th>Type</th><th>Burn</th>
+          <th>Deploy fee (wei)</th><th>Token address</th><th>Exchange address</th><th>Actions</th>
         </tr>
       </thead>
       <tbody></tbody>
@@ -361,13 +468,36 @@ function buildPaymentMethodsSection() {
     loadPaymentMethods(syms, tbody, statusEl);
   });
 
+  // auto-load the defaults once a read connection is ready, so the table
+  // isn't empty on every fresh page load
+  const trySeed = () => {
+    if (provider) loadPaymentMethods(
+      toolbar.querySelector(".pm-symbols-input").value.split(",").map(s => s.trim()).filter(Boolean),
+      tbody, statusEl
+    );
+    else setTimeout(trySeed, 400);
+  };
+  setTimeout(trySeed, 300);
+
   return wrap;
 }
 
 /* ── form builder ─────────────────────────────────────────── */
 const ZERO_ADDR = "0x0000000000000000000000000000000000000000";
 
-function buildInputRow(inp) {
+function buildInputRow(inp, pathPrefix = "") {
+  const path = pathPrefix ? `${pathPrefix}.${inp.name}` : inp.name;
+
+  if (inp.type === "tuple") {
+    const box = document.createElement("fieldset");
+    box.className = "tuple-box";
+    const legend = document.createElement("legend");
+    legend.textContent = inp.label;
+    box.appendChild(legend);
+    inp.fields.forEach(sub => box.appendChild(buildInputRow(sub, path)));
+    return box;
+  }
+
   const wrap = document.createElement("div");
   wrap.className = "field";
 
@@ -376,10 +506,9 @@ function buildInputRow(inp) {
   wrap.appendChild(label);
 
   if (inp.type === "bool") {
-    // Mobile-friendly tap toggle instead of <select>
     const hidden = document.createElement("input");
     hidden.type  = "hidden";
-    hidden.name  = inp.name;
+    hidden.name  = path;
     hidden.value = "true";
 
     const toggle = document.createElement("div");
@@ -400,17 +529,16 @@ function buildInputRow(inp) {
     wrap.appendChild(hidden);
   } else {
     const row = document.createElement("div");
-    row.style.cssText = "display:flex;gap:6px;align-items:center;";
+    row.className = "field-row";
 
     const input = document.createElement("input");
-    input.name         = inp.name;
+    input.name         = path;
     input.type         = "text";
     input.placeholder  = inp.type;
     input.autocomplete = "off";
     input.spellcheck   = false;
     row.appendChild(input);
 
-    // Quick-fill zero address button for address fields that accept 0x0
     if (inp.type === "address" && inp.label.toLowerCase().includes("0x0")) {
       const zeroBtn = document.createElement("button");
       zeroBtn.type      = "button";
@@ -424,6 +552,50 @@ function buildInputRow(inp) {
     wrap.appendChild(row);
   }
   return wrap;
+}
+
+function buildActionCard(key, fnSchema) {
+  const card = document.createElement("form");
+  card.className = `action-card ${fnSchema.group === "danger" ? "action-danger" : ""}`;
+
+  const fieldsWrap = document.createElement("div");
+  fieldsWrap.className = "fields";
+  fnSchema.inputs.forEach(inp => fieldsWrap.appendChild(buildInputRow(inp)));
+  if (fnSchema.payableValue) {
+    fieldsWrap.appendChild(buildInputRow({ ...fnSchema.payableValue, type: "uint256" }));
+  }
+
+  const btn = document.createElement("button");
+  btn.type        = "submit";
+  btn.className   = `btn ${fnSchema.group === "danger" ? "btn-danger" : "btn-primary"}`;
+  btn.textContent = fnSchema.label;
+
+  card.appendChild(fieldsWrap);
+  card.appendChild(btn);
+  card.addEventListener("submit", e => { e.preventDefault(); runAction(key, fnSchema, card, btn); });
+  return card;
+}
+
+function buildLookupForm(key, fnSchema) {
+  const form = document.createElement("form");
+  form.className = "action-form";
+  const out  = document.createElement("pre");
+  out.className = "lookup-out hidden";
+
+  const fieldsWrap = document.createElement("div");
+  fieldsWrap.className = "fields";
+  fnSchema.inputs.forEach(inp => fieldsWrap.appendChild(buildInputRow(inp)));
+
+  const btn = document.createElement("button");
+  btn.type      = "submit";
+  btn.className = "btn btn-ghost";
+  btn.textContent = fnSchema.label;
+
+  form.appendChild(fieldsWrap);
+  form.appendChild(btn);
+  form.appendChild(out);
+  form.addEventListener("submit", e => { e.preventDefault(); runLookup(key, fnSchema, form, out); });
+  return form;
 }
 
 /* ── panel builder ────────────────────────────────────────── */
@@ -448,6 +620,22 @@ function buildContractPanel(key) {
 
   // stats grid
   if (schema.reads.length) {
+    const statsHead = document.createElement("div");
+    statsHead.className = "stats-head";
+    statsHead.innerHTML = `<h3>Overview</h3>`;
+    const refreshBtn = document.createElement("button");
+    refreshBtn.type = "button";
+    refreshBtn.className = "btn btn-xs btn-ghost";
+    refreshBtn.textContent = "Refresh";
+    refreshBtn.addEventListener("click", () => {
+      $$(`#panel-${key} [data-read]`).forEach(el => {
+        const fn = schema.reads.find(r => r.name === el.dataset.read);
+        if (fn) runRead(key, fn, el);
+      });
+    });
+    statsHead.appendChild(refreshBtn);
+    panel.appendChild(statsHead);
+
     const statsGrid = document.createElement("div");
     statsGrid.className = "stats-grid";
     schema.reads.forEach(r => {
@@ -470,59 +658,54 @@ function buildContractPanel(key) {
     panel.appendChild(buildPaymentMethodsSection());
   }
 
-  // lookups
+  // lookups — split primary vs advanced
   if (schema.lookups.length) {
-    const lookupWrap = document.createElement("div");
-    lookupWrap.className = "subsection";
-    lookupWrap.innerHTML = `<h3>Look up</h3>`;
-    schema.lookups.forEach(fnSchema => {
-      const form = document.createElement("form");
-      form.className = "action-form";
-      const out  = document.createElement("pre");
-      out.className = "lookup-out hidden";
+    const primary  = schema.lookups.filter(f => f.group !== "advanced");
+    const advanced = schema.lookups.filter(f => f.group === "advanced");
 
-      const fieldsWrap = document.createElement("div");
-      fieldsWrap.className = "fields";
-      fnSchema.inputs.forEach(inp => fieldsWrap.appendChild(buildInputRow(inp)));
-
-      const btn = document.createElement("button");
-      btn.type      = "submit";
-      btn.className = "btn btn-ghost";
-      btn.textContent = fnSchema.label;
-
-      form.appendChild(fieldsWrap);
-      form.appendChild(btn);
-      form.appendChild(out);
-      form.addEventListener("submit", e => { e.preventDefault(); runLookup(key, fnSchema, form, out); });
-      lookupWrap.appendChild(form);
-    });
-    panel.appendChild(lookupWrap);
+    if (primary.length) {
+      const wrap = document.createElement("div");
+      wrap.className = "subsection";
+      wrap.innerHTML = `<h3>Look up</h3>`;
+      primary.forEach(fn => wrap.appendChild(buildLookupForm(key, fn)));
+      panel.appendChild(wrap);
+    }
+    if (advanced.length) {
+      const details = document.createElement("details");
+      details.className = "subsection collapsible";
+      details.innerHTML = `<summary>Advanced look-ups (${advanced.length})</summary>`;
+      advanced.forEach(fn => details.appendChild(buildLookupForm(key, fn)));
+      panel.appendChild(details);
+    }
   }
 
-  // owner actions
+  // owner actions — split primary / advanced / danger
   if (schema.actions.length) {
-    const actionsWrap = document.createElement("div");
-    actionsWrap.className = "subsection";
-    actionsWrap.innerHTML = `<h3>Owner actions</h3>`;
-    schema.actions.forEach(fnSchema => {
-      const card = document.createElement("form");
-      card.className = `action-card ${fnSchema.danger ? "action-danger" : ""}`;
+    const primary  = schema.actions.filter(f => !f.group || f.group === "primary");
+    const advanced = schema.actions.filter(f => f.group === "advanced");
+    const danger   = schema.actions.filter(f => f.group === "danger");
 
-      const fieldsWrap = document.createElement("div");
-      fieldsWrap.className = "fields";
-      fnSchema.inputs.forEach(inp => fieldsWrap.appendChild(buildInputRow(inp)));
-
-      const btn = document.createElement("button");
-      btn.type        = "submit";
-      btn.className   = `btn ${fnSchema.danger ? "btn-danger" : "btn-primary"}`;
-      btn.textContent = fnSchema.label;
-
-      card.appendChild(fieldsWrap);
-      card.appendChild(btn);
-      card.addEventListener("submit", e => { e.preventDefault(); runAction(key, fnSchema, card, btn); });
-      actionsWrap.appendChild(card);
-    });
-    panel.appendChild(actionsWrap);
+    if (primary.length) {
+      const wrap = document.createElement("div");
+      wrap.className = "subsection";
+      wrap.innerHTML = `<h3>Owner actions</h3>`;
+      primary.forEach(fn => wrap.appendChild(buildActionCard(key, fn)));
+      panel.appendChild(wrap);
+    }
+    if (advanced.length) {
+      const details = document.createElement("details");
+      details.className = "subsection collapsible";
+      details.innerHTML = `<summary>Advanced actions (${advanced.length})</summary>`;
+      advanced.forEach(fn => details.appendChild(buildActionCard(key, fn)));
+      panel.appendChild(details);
+    }
+    if (danger.length) {
+      const details = document.createElement("details");
+      details.className = "subsection collapsible collapsible-danger";
+      details.innerHTML = `<summary>⚠ Danger zone (${danger.length})</summary>`;
+      danger.forEach(fn => details.appendChild(buildActionCard(key, fn)));
+      panel.appendChild(details);
+    }
   }
 
   return panel;
@@ -568,6 +751,8 @@ function buildNav() {
 
 /* ── init ─────────────────────────────────────────────────── */
 function init() {
+  detectReadProvider();
+  restoreLog();
   buildNav();
   const main = $("#views");
 
@@ -580,7 +765,14 @@ function init() {
   });
 
   connectBtn.addEventListener("click", connect);
-  log("Console ready. Connect a wallet to load owner status and send transactions.", "info");
+  refreshAllBtn?.addEventListener("click", () => { refreshAllReads(); refreshAllOwnerBadges(); });
+  clearLogBtn?.addEventListener("click", () => {
+    if (!window.confirm("Clear the local activity log? This only clears this browser's history, nothing on-chain.")) return;
+    logEl.innerHTML = "";
+    saveLog([]);
+  });
+
+  log("Console ready. Reads load automatically; connect a wallet to send transactions.", "info");
 }
 
 init();
