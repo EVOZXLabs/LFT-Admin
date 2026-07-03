@@ -5,7 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Launch Future · Admin Console</title>
   <meta name="robots" content="noindex, nofollow" />
-  <link rel="stylesheet" href="styles.css" />
+  <!--
+    BUILD_VERSION — bump this (v5, v6, ...) every time you redeploy, and
+    update every "?v=" below to match. This forces browsers/Vercel's CDN
+    to fetch the fresh files instead of a cached copy, which is what
+    caused the console to look "not updated" the last few times.
+  -->
+  <link rel="stylesheet" href="styles.css?v=5" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23f2a93b'/><text x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' fill='%2310131a' font-size='18' font-family='monospace' font-weight='bold'>LF</text></svg>" />
 </head>
 <body>
@@ -64,20 +70,21 @@
 <footer class="note">
   This page connects directly to the blockchain via your browser wallet. No backend, no keys stored.
   Only the contract owner wallet can execute write operations.
+  <br><span class="build-tag">Build v5</span>
 </footer>
 
 <!-- ── ABI files ─────────────────────────────────────────────── -->
-<script src="abi/LaunchFutureToken.js"></script>
-<script src="abi/LaunchFutureExchange.js"></script>
-<script src="abi/LFTDeployer.js"></script>
-<script src="abi/LFTFactory.js"></script>
+<script src="abi/LaunchFutureToken.js?v=5"></script>
+<script src="abi/LaunchFutureExchange.js?v=5"></script>
+<script src="abi/LFTDeployer.js?v=5"></script>
+<script src="abi/LFTFactory.js?v=5"></script>
 
 <!-- ── app config & schema ──────────────────────────────────── -->
-<script src="config.js"></script>
-<script src="schema.js"></script>
+<script src="config.js?v=5"></script>
+<script src="schema.js?v=5"></script>
 
 <!-- ── main app (ES module) ─────────────────────────────────── -->
-<script type="module" src="app.js"></script>
+<script type="module" src="app.js?v=5"></script>
 
 </body>
 </html>

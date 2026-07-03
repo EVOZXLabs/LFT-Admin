@@ -327,25 +327,64 @@ async function refreshAllReads() {
   }
 }
 
+const ABI_FILE_MAP = {
+  token: "abi/LaunchFutureToken.js",
+  exchange: "abi/LaunchFutureExchange.js",
+  deployer: "abi/LFTDeployer.js",
+  factory: "abi/LFTFactory.js"
+};
+
+/* Turns a raw ethers/JS error into a short label + a clear explanation,
+   distinguishing three very different situations that all otherwise look
+   like a generic "error":
+   1. The function isn't in the loaded ABI at all (stale/incomplete file)
+   2. The ABI has it, but the deployed contract doesn't implement it
+      (call reverts / returns no data — usually an older deployment)
+   3. Some other failure (bad args, network hiccup, etc.) */
+function classifyCallError(key, c, fnSchema, err) {
+  if (typeof c[fnSchema.name] !== "function") {
+    return {
+      short: "not in ABI",
+      detail: `"${fnSchema.name}" isn't defined in the loaded ABI. Make sure ${ABI_FILE_MAP[key] || "the matching abi/*.js file"} was actually updated and redeployed.`
+    };
+  }
+  const msg = String(err?.message || err || "");
+  if (err?.code === "BAD_DATA" || err?.code === "CALL_EXCEPTION" || /could not decode result data|missing revert data|no data present/i.test(msg)) {
+    return {
+      short: "not supported",
+      detail: `The contract at this address doesn't return data for "${fnSchema.name}" — it likely doesn't implement this function on-chain (older deployment than the current source).`
+    };
+  }
+  return { short: "error", detail: err?.shortMessage || err?.message || msg };
+}
+
 /* ── contract calls ───────────────────────────────────────── */
 async function runRead(key, fnSchema, container) {
   const cacheKey = `${key}:${fnSchema.name}`;
+  const hint = container.parentElement?.querySelector(".stat-hint");
+  const setHint = (text) => {
+    if (!hint) return;
+    if (text) { hint.textContent = text; hint.classList.remove("hidden"); }
+    else      { hint.textContent = "";   hint.classList.add("hidden"); }
+  };
+
   if (!provider) {
     // show the last known value (if any) instead of a blank/"error" state
     const cached = loadCache()[cacheKey];
     container.textContent = cached ? `${cached.text}` : "—";
     container.classList.toggle("stat-cached", !!cached);
-    container.title = cached ? `Cached from a previous session · no RPC connection right now` : "";
+    setHint(cached ? "Cached from a previous session · no RPC connection right now" : "");
     return;
   }
   container.classList.add("stat-loading");
+  let c;
   try {
-    const c      = getContract(key, false);
+    c = getContract(key, false);
     const result = await c[fnSchema.name]();
     const text   = fmtValue(result, fnSchema.format);
     const changed = container.textContent !== text && container.textContent !== "—";
     container.textContent = text;
-    container.title       = "";
+    setHint("");
     container.classList.remove("stat-cached", "stat-error");
     if (changed) {
       container.classList.remove("stat-flash");
@@ -358,11 +397,12 @@ async function runRead(key, fnSchema, container) {
     if (cached) {
       container.textContent = cached.text;
       container.classList.add("stat-cached");
-      container.title = "Showing the last known value — the live read just failed.";
+      setHint("Showing the last known value — the live read just failed.");
     } else {
-      container.textContent = "error";
+      const info = c ? classifyCallError(key, c, fnSchema, err) : { short: "error", detail: err.message || String(err) };
+      container.textContent = info.short;
       container.classList.add("stat-error");
-      container.title = err.message || String(err);
+      setHint(info.detail);
     }
   } finally {
     container.classList.remove("stat-loading");
@@ -370,14 +410,16 @@ async function runRead(key, fnSchema, container) {
 }
 
 async function runLookup(key, fnSchema, form, outEl) {
+  let c;
   try {
-    const c    = getContract(key, false);
+    c    = getContract(key, false);
     const args = collectArgs(fnSchema.inputs, form);
     const result = await c[fnSchema.name](...args);
     outEl.textContent = jsonStringifySafe(result);
     outEl.classList.remove("hidden");
   } catch (err) {
-    outEl.textContent = `Error: ${err.shortMessage || err.message || err}`;
+    const info = c ? classifyCallError(key, c, fnSchema, err) : { detail: err.message || String(err) };
+    outEl.textContent = `Error (${info.short || "invalid input"}): ${info.detail}`;
     outEl.classList.remove("hidden");
   }
 }
@@ -404,6 +446,9 @@ async function runAction(key, fnSchema, form, btn) {
   btn.disabled       = true;
   btn.textContent    = "Confirm in wallet…";
   try {
+    if (typeof c[fnSchema.name] !== "function") {
+      throw new Error(`"${fnSchema.name}" isn't defined in the loaded ABI. Make sure ${ABI_FILE_MAP[key] || "the matching abi/*.js file"} was actually updated and redeployed.`);
+    }
     const tx      = await c[fnSchema.name](...args, overrides);
     btn.textContent = "Pending…";
     log(`${fnSchema.label} — submitted`, "pending", tx.hash);
@@ -723,8 +768,11 @@ function buildContractPanel(key) {
       val.className    = "stat-val";
       val.dataset.read = r.name;
       val.textContent  = "—";
+      const hint = document.createElement("div");
+      hint.className = "stat-hint hidden";
       card.innerHTML = `<div class="stat-label">${r.label}</div>`;
       card.appendChild(val);
+      card.appendChild(hint);
       statsGrid.appendChild(card);
       runRead(key, r, val);
     });

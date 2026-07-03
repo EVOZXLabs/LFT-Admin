@@ -263,6 +263,16 @@ window.LFT_SCHEMA = {
     lookups: [
       { name: "getInfo", label: "Get full info", inputs: [] },
       {
+        name: "getFactory", label: "Get linked factory (raw call)",
+        group: "advanced",
+        inputs: []
+      },
+      {
+        name: "getDeployer", label: "Get CREATE2 signer (raw call)",
+        group: "advanced",
+        inputs: []
+      },
+      {
         name: "predictAddress", label: "Predict CREATE2 token address",
         group: "advanced",
         inputs: [
@@ -272,6 +282,11 @@ window.LFT_SCHEMA = {
         ]
       }
     ],
+    // Note: deploy() and deployCreate2() exist in the ABI but are restricted
+    // to `onlyFactory` on-chain — calling them from this admin console (or
+    // any wallet other than the LFTFactory contract itself) will always
+    // revert, so they're intentionally not exposed as actions here. Use the
+    // "Deploy a token" actions on the Factory panel instead.
     actions: [
       {
         name: "initializeFactory", label: "Set linked factory",
