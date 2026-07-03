@@ -253,7 +253,7 @@ window.LFT_SCHEMA = {
 
   deployer: {
     reads: [
-      { name: "deployer", label: "Deployer (CREATE2 signer)", format: "address" },
+      { name: "deployer", label: "Deployer (set once, only address allowed to call initializeFactory)", format: "address" },
       { name: "factory", label: "Linked factory", format: "address" }
     ],
     lookups: [
