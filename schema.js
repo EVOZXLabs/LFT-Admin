@@ -29,8 +29,8 @@ const SECURITY_CONFIG_FIELDS = [
   { name: "tradingDelay",        type: "bool",   label: "Trading delay enabled?" },
   { name: "maxWalletEnabled",    type: "bool",   label: "Max wallet limit enabled?" },
   { name: "maxTxEnabled",        type: "bool",   label: "Max tx limit enabled?" },
-  { name: "maxWalletPercent",    type: "uint16", label: "Max wallet (bps)" },
-  { name: "maxTxPercent",        type: "uint16", label: "Max tx (bps)" },
+  { name: "maxWalletPercent",    type: "uint16", label: "Max wallet % of supply (1–100, only if enabled above)" },
+  { name: "maxTxPercent",        type: "uint16", label: "Max tx % of supply (1–100, only if enabled above)" },
   { name: "antiBotBlocks",       type: "uint32", label: "Anti-bot blocks" },
   { name: "tradingDelaySeconds", type: "uint32", label: "Trading delay (seconds)" }
 ];
@@ -39,22 +39,22 @@ const TAX_CONFIG_FIELDS = [
   { name: "buyTaxEnabled",      type: "bool",    label: "Buy tax enabled?" },
   { name: "sellTaxEnabled",     type: "bool",    label: "Sell tax enabled?" },
   { name: "transferTaxEnabled", type: "bool",    label: "Transfer tax enabled?" },
-  { name: "buyTax",             type: "uint16",  label: "Buy tax (bps)" },
-  { name: "sellTax",            type: "uint16",  label: "Sell tax (bps)" },
-  { name: "transferTax",        type: "uint16",  label: "Transfer tax (bps)" },
-  { name: "burnShare",          type: "uint16",  label: "Burn share (bps)" },
-  { name: "marketingShare",     type: "uint16",  label: "Marketing share (bps)" },
-  { name: "developmentShare",   type: "uint16",  label: "Development share (bps)" },
-  { name: "treasuryShare",      type: "uint16",  label: "Treasury share (bps)" },
-  { name: "liquidityShare",     type: "uint16",  label: "Liquidity share (bps)" },
-  { name: "buybackShare",       type: "uint16",  label: "Buyback share (bps)" },
-  { name: "charityShare",       type: "uint16",  label: "Charity share (bps)" },
-  { name: "marketingWallet",    type: "address", label: "Marketing wallet" },
-  { name: "developmentWallet",  type: "address", label: "Development wallet" },
-  { name: "treasuryWallet",     type: "address", label: "Treasury wallet" },
-  { name: "liquidityWallet",    type: "address", label: "Liquidity wallet" },
-  { name: "buybackWallet",      type: "address", label: "Buyback wallet" },
-  { name: "charityWallet",      type: "address", label: "Charity wallet" }
+  { name: "buyTax",             type: "uint16",  label: "Buy tax % (0–10 max)" },
+  { name: "sellTax",            type: "uint16",  label: "Sell tax % (0–10 max)" },
+  { name: "transferTax",        type: "uint16",  label: "Transfer tax % (0–10 max)" },
+  { name: "burnShare",          type: "uint16",  label: "Burn share % (all 7 shares must total exactly 100)" },
+  { name: "marketingShare",     type: "uint16",  label: "Marketing share %" },
+  { name: "developmentShare",   type: "uint16",  label: "Development share %" },
+  { name: "treasuryShare",      type: "uint16",  label: "Treasury share %" },
+  { name: "liquidityShare",     type: "uint16",  label: "Liquidity share %" },
+  { name: "buybackShare",       type: "uint16",  label: "Buyback share %" },
+  { name: "charityShare",       type: "uint16",  label: "Charity share % (burn+marketing+dev+treasury+liquidity+buyback+charity = 100)" },
+  { name: "marketingWallet",    type: "address", label: "Marketing wallet (required if marketing share > 0)" },
+  { name: "developmentWallet",  type: "address", label: "Development wallet (required if development share > 0)" },
+  { name: "treasuryWallet",     type: "address", label: "Treasury wallet (required if treasury share > 0)" },
+  { name: "liquidityWallet",    type: "address", label: "Liquidity wallet (required if liquidity share > 0)" },
+  { name: "buybackWallet",      type: "address", label: "Buyback wallet (required if buyback share > 0)" },
+  { name: "charityWallet",      type: "address", label: "Charity wallet (required if charity share > 0)" }
 ];
 
 const TOKEN_CONFIG_FIELD = {
@@ -254,24 +254,9 @@ window.LFT_SCHEMA = {
   deployer: {
     reads: [
       { name: "deployer", label: "Deployer (CREATE2 signer)", format: "address" },
-      { name: "factory", label: "Linked factory", format: "address" },
-      { name: "isInitialized", label: "Initialized", format: "bool" },
-      { name: "version", label: "Version" },
-      { name: "contractName", label: "Contract name" },
-      { name: "contractType", label: "Contract type" }
+      { name: "factory", label: "Linked factory", format: "address" }
     ],
     lookups: [
-      { name: "getInfo", label: "Get full info", inputs: [] },
-      {
-        name: "getFactory", label: "Get linked factory (raw call)",
-        group: "advanced",
-        inputs: []
-      },
-      {
-        name: "getDeployer", label: "Get CREATE2 signer (raw call)",
-        group: "advanced",
-        inputs: []
-      },
       {
         name: "predictAddress", label: "Predict CREATE2 token address",
         group: "advanced",
@@ -282,11 +267,6 @@ window.LFT_SCHEMA = {
         ]
       }
     ],
-    // Note: deploy() and deployCreate2() exist in the ABI but are restricted
-    // to `onlyFactory` on-chain — calling them from this admin console (or
-    // any wallet other than the LFTFactory contract itself) will always
-    // revert, so they're intentionally not exposed as actions here. Use the
-    // "Deploy a token" actions on the Factory panel instead.
     actions: [
       {
         name: "initializeFactory", label: "Set linked factory",
@@ -303,8 +283,8 @@ window.LFT_SCHEMA = {
       { name: "pendingOwner", label: "Pending owner", format: "address" },
       { name: "treasury", label: "Treasury", format: "address" },
       { name: "deployer", label: "Deployer", format: "address" },
-      { name: "burnPercent", label: "Burn percent (bps)" },
-      { name: "treasuryPercent", label: "Treasury percent (bps)" },
+      { name: "burnPercent", label: "Burn % of deploy fee" },
+      { name: "treasuryPercent", label: "Treasury % of deploy fee" },
       { name: "paused", label: "Paused", format: "bool" },
       { name: "totalDeployed", label: "Tokens deployed" },
       { name: "getFactoryTokenCount", label: "Factory token count" },
@@ -384,10 +364,10 @@ window.LFT_SCHEMA = {
         inputs: [{ name: "newDeployer", type: "address", label: "New deployer address" }]
       },
       {
-        name: "setBurnPercent", label: "Set burn / treasury split (bps)",
+        name: "setBurnPercent", label: "Set burn / treasury split of deploy fee",
         inputs: [
-          { name: "newBurnPercent", type: "uint16", label: "Burn percent (bps, 100 = 1%)" },
-          { name: "newTreasuryPercent", type: "uint16", label: "Treasury percent (bps)" }
+          { name: "newBurnPercent", type: "uint16", label: "Burn % (must add up to 100 with treasury %)" },
+          { name: "newTreasuryPercent", type: "uint16", label: "Treasury % (must add up to 100 with burn %)" }
         ]
       },
       {

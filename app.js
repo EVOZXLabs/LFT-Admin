@@ -565,12 +565,17 @@ function buildPaymentMethodsSection() {
   wrap.className = "subsection pm-scanner";
   wrap.innerHTML = `<h3>Payment methods</h3>`;
 
+  const nativeHint = document.createElement("p");
+  nativeHint.className = "pm-status";
+  nativeHint.innerHTML = `<strong>Note:</strong> "Deploy a token (pay with native coin)" always looks up the payment method under the exact symbol <code>NATIVE</code> — it must be registered and enabled (isNative = true) here, or every native-coin deploy will revert regardless of any other symbol.`;
+  wrap.appendChild(nativeHint);
+
   const toolbar = document.createElement("div");
   toolbar.className = "pm-toolbar";
   toolbar.innerHTML = `
     <input class="pm-symbols-input" type="text" spellcheck="false" autocomplete="off"
       placeholder="Comma-separated symbols, e.g. BNB,USDT,USDC,LFT"
-      value="BNB,ETH,USDT,USDC,DAI,LFT,WBNB,WETH" />
+      value="NATIVE,BNB,ETH,USDT,USDC,DAI,LFT,WBNB,WETH" />
     <button class="btn btn-primary pm-load-btn">Load</button>
   `;
   wrap.appendChild(toolbar);
