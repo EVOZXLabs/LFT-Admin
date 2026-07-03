@@ -10,6 +10,13 @@
 </head>
 <body>
 
+<!-- ── animated background ──────────────────────────────────── -->
+<div class="bg-fx" aria-hidden="true">
+  <div class="blob blob-amber"></div>
+  <div class="blob blob-green"></div>
+  <div class="blob blob-blue"></div>
+</div>
+
 <!-- ── top bar ───────────────────────────────────────────────── -->
 <header class="topbar">
   <div class="brand">
@@ -20,6 +27,7 @@
     </div>
   </div>
   <div class="topbar-right">
+    <button class="btn-sound" id="soundToggleBtn" title="Toggle sound effects">🔊</button>
     <span class="pill" id="rpcPill">Detecting RPC…</span>
     <span class="pill" id="networkPill">No network</span>
     <span class="pill" id="walletPill">Not connected</span>

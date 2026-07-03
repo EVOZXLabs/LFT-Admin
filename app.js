@@ -31,6 +31,73 @@ const rpcPill      = $("#rpcPill");
 const logEl        = $("#log");
 const refreshAllBtn = $("#refreshAllBtn");
 const clearLogBtn   = $("#clearLogBtn");
+const soundToggleBtn = $("#soundToggleBtn");
+
+/* ── tiny sound engine (no external audio files, all synthesized) ──
+   A few short, non-annoying cues for tx feedback. Muted by default
+   state is remembered in localStorage. */
+const SOUND_KEY = "lft_admin_sound_v1";
+let audioCtx = null;
+let soundOn  = (localStorage.getItem(SOUND_KEY) ?? "on") === "on";
+
+function ensureAudioCtx() {
+  if (!audioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    audioCtx = new AC();
+  }
+  if (audioCtx.state === "suspended") audioCtx.resume();
+  return audioCtx;
+}
+
+function playTone(freq, delay, duration, type = "sine", gain = 0.05) {
+  const ctx = ensureAudioCtx();
+  if (!ctx) return;
+  const osc = ctx.createOscillator();
+  const g   = ctx.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  const t0 = ctx.currentTime + delay;
+  g.gain.setValueAtTime(0, t0);
+  g.gain.linearRampToValueAtTime(gain, t0 + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+  osc.connect(g).connect(ctx.destination);
+  osc.start(t0);
+  osc.stop(t0 + duration + 0.02);
+}
+
+function playSuccessChime() {
+  if (!soundOn) return;
+  playTone(523.25, 0,    0.16, "triangle", 0.05); // C5
+  playTone(659.25, 0.08, 0.16, "triangle", 0.05); // E5
+  playTone(783.99, 0.16, 0.22, "triangle", 0.06); // G5
+}
+function playErrorBlip() {
+  if (!soundOn) return;
+  playTone(220, 0,    0.12, "square", 0.04);
+  playTone(160, 0.08, 0.18, "square", 0.04);
+}
+function playPendingTick() {
+  if (!soundOn) return;
+  playTone(440, 0, 0.06, "sine", 0.03);
+}
+function playClick() {
+  if (!soundOn) return;
+  playTone(880, 0, 0.04, "sine", 0.025);
+}
+
+function setSoundUI() {
+  soundToggleBtn.textContent = soundOn ? "🔊" : "🔇";
+  soundToggleBtn.classList.toggle("sound-on", soundOn);
+  soundToggleBtn.title = soundOn ? "Sound on — click to mute" : "Sound muted — click to unmute";
+}
+soundToggleBtn?.addEventListener("click", () => {
+  soundOn = !soundOn;
+  localStorage.setItem(SOUND_KEY, soundOn ? "on" : "off");
+  setSoundUI();
+  if (soundOn) playClick();
+});
+setSoundUI();
 
 /* ── persistence (localStorage) ──────────────────────────────
    Two things are cached across page loads / reconnects:
@@ -70,17 +137,20 @@ function short(addr) {
 
 function log(message, kind = "info", txHash = null, persist = true) {
   const time = new Date().toLocaleTimeString();
-  renderLogRow({ message, kind, txHash, time });
+  renderLogRow({ message, kind, txHash, time }, /* animate */ true);
   if (persist) {
     const rows = loadLog();
     rows.unshift({ message, kind, txHash, time, at: Date.now() });
     saveLog(rows);
   }
+  if (kind === "ok")      playSuccessChime();
+  else if (kind === "error")   playErrorBlip();
+  else if (kind === "pending") playPendingTick();
 }
 
-function renderLogRow({ message, kind, txHash, time }) {
+function renderLogRow({ message, kind, txHash, time }, animate = false) {
   const row  = document.createElement("div");
-  row.className = `log-row log-${kind}`;
+  row.className = `log-row log-${kind}` + (animate ? " log-row-new" : "");
   let html   = `<span class="log-time">${time}</span><span class="log-msg">${message}</span>`;
   if (txHash) {
     const link = CFG.explorerUrl
@@ -94,8 +164,9 @@ function renderLogRow({ message, kind, txHash, time }) {
 
 function restoreLog() {
   const rows = loadLog();
-  // oldest first into the DOM since renderLogRow prepends each one
-  [...rows].reverse().forEach(renderLogRow);
+  // oldest first into the DOM since renderLogRow prepends each one; not
+  // animated since this is just restoring history, not new activity
+  [...rows].reverse().forEach(r => renderLogRow(r, false));
 }
 
 function fmtValue(raw, format) {
@@ -179,6 +250,7 @@ function detectReadProvider() {
 }
 
 async function connect() {
+  playClick();
   if (!window.ethereum) {
     log("No wallet found. Install MetaMask or another injected wallet.", "error");
     return;
@@ -271,9 +343,15 @@ async function runRead(key, fnSchema, container) {
     const c      = getContract(key, false);
     const result = await c[fnSchema.name]();
     const text   = fmtValue(result, fnSchema.format);
+    const changed = container.textContent !== text && container.textContent !== "—";
     container.textContent = text;
     container.title       = "";
     container.classList.remove("stat-cached", "stat-error");
+    if (changed) {
+      container.classList.remove("stat-flash");
+      void container.offsetWidth; // restart animation
+      container.classList.add("stat-flash");
+    }
     saveCacheEntry(cacheKey, text);
   } catch (err) {
     const cached = loadCache()[cacheKey];
@@ -674,7 +752,10 @@ function buildContractPanel(key) {
       const details = document.createElement("details");
       details.className = "subsection collapsible";
       details.innerHTML = `<summary>Advanced look-ups (${advanced.length})</summary>`;
-      advanced.forEach(fn => details.appendChild(buildLookupForm(key, fn)));
+      const body = document.createElement("div");
+      body.className = "collapsible-body";
+      advanced.forEach(fn => body.appendChild(buildLookupForm(key, fn)));
+      details.appendChild(body);
       panel.appendChild(details);
     }
   }
@@ -696,14 +777,20 @@ function buildContractPanel(key) {
       const details = document.createElement("details");
       details.className = "subsection collapsible";
       details.innerHTML = `<summary>Advanced actions (${advanced.length})</summary>`;
-      advanced.forEach(fn => details.appendChild(buildActionCard(key, fn)));
+      const body = document.createElement("div");
+      body.className = "collapsible-body";
+      advanced.forEach(fn => body.appendChild(buildActionCard(key, fn)));
+      details.appendChild(body);
       panel.appendChild(details);
     }
     if (danger.length) {
       const details = document.createElement("details");
       details.className = "subsection collapsible collapsible-danger";
       details.innerHTML = `<summary>⚠ Danger zone (${danger.length})</summary>`;
-      danger.forEach(fn => details.appendChild(buildActionCard(key, fn)));
+      const body = document.createElement("div");
+      body.className = "collapsible-body";
+      danger.forEach(fn => body.appendChild(buildActionCard(key, fn)));
+      details.appendChild(body);
       panel.appendChild(details);
     }
   }
@@ -740,6 +827,7 @@ function buildNav() {
     btn.textContent = cfg.label;
     btn.dataset.target = key;
     btn.addEventListener("click", () => {
+      playClick();
       $$(".tab").forEach(t => t.classList.remove("tab-active"));
       btn.classList.add("tab-active");
       $$(".view").forEach(p => p.classList.add("hidden"));
