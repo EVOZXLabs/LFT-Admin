@@ -169,6 +169,16 @@ function restoreLog() {
   [...rows].reverse().forEach(r => renderLogRow(r, false));
 }
 
+/* Surface ANY uncaught error directly in the Activity Log, so a broken
+   panel/page is diagnosable from a phone without opening dev tools. */
+window.addEventListener("error", (e) => {
+  log(`Unexpected error: ${e.message} (${e.filename ? e.filename.split("/").pop() : "?"}:${e.lineno || "?"})`, "error", null, false);
+});
+window.addEventListener("unhandledrejection", (e) => {
+  const reason = e.reason;
+  log(`Unexpected error (async): ${reason?.message || reason}`, "error", null, false);
+});
+
 function fmtValue(raw, format) {
   if (raw === null || raw === undefined) return "—";
   if (format === "address") return raw === ethers.ZeroAddress ? "0x0 (none)" : raw;
@@ -279,8 +289,10 @@ async function connect() {
     window.ethereum.on?.("accountsChanged", () => window.location.reload());
     window.ethereum.on?.("chainChanged",    () => window.location.reload());
 
+    log("Refreshing all data…", "info", null, false);
     await refreshAllOwnerBadges();
     await refreshAllReads();
+    log("Refresh complete.", "info", null, false);
   } catch (err) {
     log(`Connection failed: ${err.message || err}`, "error");
   }
@@ -893,11 +905,15 @@ function init() {
   const main = $("#views");
 
   Object.keys(CFG.contracts).forEach((key, i) => {
-    const wrap    = document.createElement("div");
-    wrap.id       = `view-${key}`;
-    wrap.className = "view" + (i === 0 ? "" : " hidden");
-    wrap.appendChild(key === "treasury" ? buildTreasuryPanel() : buildContractPanel(key));
-    main.appendChild(wrap);
+    try {
+      const wrap    = document.createElement("div");
+      wrap.id       = `view-${key}`;
+      wrap.className = "view" + (i === 0 ? "" : " hidden");
+      wrap.appendChild(key === "treasury" ? buildTreasuryPanel() : buildContractPanel(key));
+      main.appendChild(wrap);
+    } catch (err) {
+      log(`Failed to build the "${key}" panel: ${err.message || err}`, "error");
+    }
   });
 
   connectBtn.addEventListener("click", connect);
