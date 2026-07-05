@@ -3,19 +3,15 @@
 // needed — just commit and GitHub Pages will pick it up.
 
 window.LFT_CONFIG = {
-  // Set this to your chain's numeric ID (e.g. 56 for BNB Chain, 8453 for
-  // Base, 1 for Ethereum). Leave as null to skip the network check.
-  chainId: null,
+  // EVOZ Mainnet
+  chainId: 805,
 
-  // Optional block explorer base URL for "view on explorer" links,
-  // e.g. "https://bscscan.com" or "https://basescan.org". Leave "" to hide.
-  explorerUrl: "",
+  // Block explorer base URL for "view on explorer" links.
+  explorerUrl: "https://evozscan.com",
 
-  // Optional public read-only RPC endpoint (e.g. a free BSC/Base RPC URL).
-  // Used ONLY when no wallet extension is installed, so stats can still
-  // load. If a wallet extension is present, its own RPC is used instead
-  // and this is ignored. Leave "" to disable.
-  rpcUrl: "",
+  // Public read-only RPC endpoint — used so stats load even without a
+  // wallet extension installed (e.g. viewing on a phone browser).
+  rpcUrl: "https://rpc.evozscan.com",
 
   contracts: {
     treasury: {
@@ -24,7 +20,7 @@ window.LFT_CONFIG = {
       note: "Wallet, not a contract — shown for reference only."
     },
     token: {
-      label: "LaunchFutureToken",
+      label: "LFT Token",
       address: "0x62B9559F193d111aF92d9a5604d79024BFB1C847",
       abiVar: "LaunchFutureTokenABI"
     },
@@ -35,12 +31,12 @@ window.LFT_CONFIG = {
     },
     deployer: {
       label: "LFTDeployer",
-      address: "0x3f81E785628D452A8Aae1536D15A3586B490F0c5",
+      address: "0xf65378BdAC0b8028535a3b4b3b6E8585BbB66fA4",
       abiVar: "LFTDeployerABI"
     },
     factory: {
       label: "LFTFactory",
-      address: "0xcd86Ca358283f06581365635372E5bF0D30271D3",
+      address: "0x818515991962dd22bE02Aadc4895FCC6366dF9B1",
       abiVar: "LFTFactoryABI"
     }
   }

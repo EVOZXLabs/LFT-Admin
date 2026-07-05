@@ -114,9 +114,32 @@ window.LFT_SCHEMA = {
         name: "DOMAIN_SEPARATOR", label: "EIP-712 domain separator",
         group: "advanced",
         inputs: []
+      },
+      {
+        name: "DOMAIN_TYPEHASH", label: "EIP-712 domain typehash",
+        group: "advanced",
+        inputs: []
+      },
+      {
+        name: "PERMIT_TYPEHASH", label: "EIP-2612 permit typehash",
+        group: "advanced",
+        inputs: []
       }
     ],
     actions: [
+      {
+        name: "permit", label: "Permit (set allowance via off-chain signature)",
+        group: "advanced",
+        inputs: [
+          { name: "owner", type: "address", label: "Owner (signer)" },
+          { name: "spender", type: "address", label: "Spender" },
+          { name: "value", type: "uint256", label: "Amount (wei units)" },
+          { name: "deadline", type: "uint256", label: "Deadline (unix time)" },
+          { name: "v", type: "uint8", label: "Signature v" },
+          { name: "r", type: "bytes32", label: "Signature r" },
+          { name: "s", type: "bytes32", label: "Signature s" }
+        ]
+      },
       {
         name: "transfer", label: "Transfer tokens",
         group: "advanced",
@@ -208,6 +231,11 @@ window.LFT_SCHEMA = {
     ],
     actions: [
       {
+        name: "purchaseWithNative", label: "Purchase LFT with native coin",
+        payableValue: { name: "value", label: "Native amount to send (wei)" },
+        inputs: [{ name: "recipient", type: "address", label: "Recipient of purchased LFT" }]
+      },
+      {
         name: "setLFTPerNative", label: "Set LFT-per-native rate",
         inputs: [{ name: "newRate", type: "uint256", label: "New rate" }]
       },
@@ -254,9 +282,17 @@ window.LFT_SCHEMA = {
   deployer: {
     reads: [
       { name: "deployer", label: "Deployer (set once, only address allowed to call initializeFactory)", format: "address" },
-      { name: "factory", label: "Linked factory", format: "address" }
+      { name: "factory", label: "Linked factory", format: "address" },
+      { name: "isInitialized", label: "Initialized?", format: "bool" },
+      { name: "contractName", label: "Contract name" },
+      { name: "contractType", label: "Contract type" },
+      { name: "version", label: "Version" }
     ],
     lookups: [
+      {
+        name: "getInfo", label: "Get full info bundle",
+        inputs: []
+      },
       {
         name: "predictAddress", label: "Predict CREATE2 token address",
         group: "advanced",
@@ -268,6 +304,12 @@ window.LFT_SCHEMA = {
       }
     ],
     actions: [
+      {
+        name: "deploy", label: "Deploy token directly (⚠ only works if called BY the factory)",
+        group: "advanced",
+        confirm: "This function is restricted to onlyFactory — calling it from this console (not from the LFTFactory contract itself) will revert. Shown for completeness only. Continue anyway?",
+        inputs: [ TOKEN_CONFIG_FIELD, METADATA_CONFIG_FIELD ]
+      },
       {
         name: "initializeFactory", label: "Set linked factory",
         group: "danger",
@@ -293,7 +335,9 @@ window.LFT_SCHEMA = {
       { name: "totalDeployFeeCollected", label: "Total deploy fees collected", format: "token" },
       { name: "totalBurnedFee", label: "Total fee burned", format: "token" },
       { name: "totalPaymentMethods", label: "Payment methods" },
-      { name: "factoryMetadataURI", label: "Metadata URI" }
+      { name: "factoryMetadataURI", label: "Metadata URI" },
+      { name: "CHAIN_ID", label: "Chain ID (immutable, set at deploy)" },
+      { name: "DEAD", label: "Burn address", format: "address" }
     ],
     lookups: [
       {
@@ -351,6 +395,34 @@ window.LFT_SCHEMA = {
           TOKEN_CONFIG_FIELD,
           METADATA_CONFIG_FIELD,
           { name: "salt", type: "bytes32", label: "Salt (bytes32, 0x + 64 hex chars)" }
+        ]
+      },
+      {
+        name: "isFactoryToken", label: "Raw: isFactoryToken mapping",
+        group: "advanced",
+        inputs: [{ name: "token", type: "address", label: "Token address" }]
+      },
+      {
+        name: "symbolExists", label: "Raw: symbolExists mapping",
+        group: "advanced",
+        inputs: [{ name: "symbol", type: "string", label: "Symbol" }]
+      },
+      {
+        name: "paymentMethods", label: "Raw: paymentMethods mapping (by hashed key, not symbol)",
+        group: "advanced",
+        inputs: [{ name: "key", type: "bytes32", label: "keccak256(symbol) key" }]
+      },
+      {
+        name: "deployedTokens", label: "Raw: deployedTokens array by index",
+        group: "advanced",
+        inputs: [{ name: "index", type: "uint256", label: "Index" }]
+      },
+      {
+        name: "creatorTokens", label: "Raw: creatorTokens[creator][index]",
+        group: "advanced",
+        inputs: [
+          { name: "creator", type: "address", label: "Creator address" },
+          { name: "index", type: "uint256", label: "Index" }
         ]
       }
     ],
