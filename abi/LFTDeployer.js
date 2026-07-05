@@ -1,4 +1,4 @@
-[
+const LFTDeployerABI = [
     {
         "inputs": [],
         "stateMutability": "nonpayable",
@@ -854,3 +854,5 @@
         "type": "function"
     }
 ]
+
+window.LFTDeployerABI = LFTDeployerABI;
