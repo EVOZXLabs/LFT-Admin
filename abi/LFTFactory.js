@@ -1,4 +1,4 @@
-[
+const LFTFactoryABI = [
     {
         "inputs": [
             {
@@ -2426,3 +2426,5 @@
         "type": "receive"
     }
 ]
+
+window.LFTFactoryABI = LFTFactoryABI;
